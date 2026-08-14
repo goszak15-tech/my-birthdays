@@ -205,6 +205,15 @@
       margin-top: 2px;
     }
 
+    /* Возраст, который исполняется в ближайший день рождения — показываем
+       всегда и чётко, независимо от того, скоро праздник или ещё далеко */
+    .person-age {
+      font-size: 13px;
+      font-weight: 700;
+      color: var(--primary-dark);
+      margin-top: 2px;
+    }
+
     /* Значок "скоро день рождения" */
     .person-badge {
       font-size: 11px;
@@ -358,7 +367,12 @@
       }
 
       .list-header .col-date {
-        flex: 0 0 130px;
+        flex: 0 0 120px;
+      }
+
+      .list-header .col-age {
+        flex: 0 0 100px;
+        text-align: center;
       }
 
       .list-header .col-days {
@@ -389,8 +403,14 @@
       }
 
       .person-date {
-        flex: 0 0 130px;
+        flex: 0 0 120px;
         margin-top: 0;
+      }
+
+      .person-age {
+        flex: 0 0 100px;
+        margin-top: 0;
+        text-align: center;
       }
 
       .person-badge {
@@ -464,6 +484,7 @@
         <div class="list-header">
           <span class="col-name">Имя</span>
           <span class="col-date">Дата</span>
+          <span class="col-age">Возраст</span>
           <span class="col-days">Осталось дней</span>
           <span class="col-empty"></span>
         </div>
@@ -562,12 +583,59 @@
     }
 
     /**
+     * Считает, сколько лет ИСПОЛНИТСЯ человеку в его следующий (ближайший)
+     * день рождения. Например, если сегодня 14.08.2026, человек родился
+     * 20.08.2000 — до дня рождения осталось несколько дней, и в этот
+     * праздник ему исполнится 2026 - 2000 = 26 лет.
+     *
+     * Логика повторяет daysUntilBirthday(): сначала строим дату ближайшего
+     * дня рождения (в этом году или в следующем, если в этом году уже
+     * прошёл), а затем считаем разницу в годах между этой датой и годом
+     * рождения — так возраст всегда правильный, независимо от текущей даты.
+     */
+    function calculateUpcomingAge(dateStr) {
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+
+      const birthDate = new Date(dateStr);
+      let nextBirthday = new Date(today.getFullYear(), birthDate.getMonth(), birthDate.getDate());
+      nextBirthday.setHours(0, 0, 0, 0);
+
+      if (nextBirthday < today) {
+        // День рождения в этом году уже прошёл — ближайший будет в следующем году
+        nextBirthday.setFullYear(today.getFullYear() + 1);
+      }
+
+      return nextBirthday.getFullYear() - birthDate.getFullYear();
+    }
+
+    /**
      * Форматирует дату из формата "YYYY-MM-DD" (как отдаёт <input type="date">)
      * в привычный русский вид "21.05.1998".
      */
     function formatDate(dateStr) {
       const [year, month, day] = dateStr.split('-');
       return `${day}.${month}.${year}`;
+    }
+
+    /**
+     * Правильно склоняет слово "год" по-русски в зависимости от возраста:
+     * 1 год, 2/3/4 года, 5-20 лет, 21 год, 22 года и т.д.
+     */
+    function pluralizeYears(age) {
+      const lastTwoDigits = age % 100;
+      const lastDigit = age % 10;
+
+      if (lastTwoDigits >= 11 && lastTwoDigits <= 14) {
+        return 'лет';
+      }
+      if (lastDigit === 1) {
+        return 'год';
+      }
+      if (lastDigit >= 2 && lastDigit <= 4) {
+        return 'года';
+      }
+      return 'лет';
     }
 
     /**
@@ -595,6 +663,7 @@
       // (это быстрее, чем добавлять элементы по одному)
       listElement.innerHTML = sortedPeople.map(person => {
         const daysLeft = daysUntilBirthday(person.date);
+        const upcomingAge = calculateUpcomingAge(person.date);
 
         // Небольшой значок, если день рождения уже скоро
         let badge = '';
@@ -610,6 +679,7 @@
             <div class="person-info">
               <div class="person-name">${escapeHtml(person.name)}</div>
               <div class="person-date">${formatDate(person.date)}</div>
+              <div class="person-age">Исполнится ${upcomingAge} ${pluralizeYears(upcomingAge)}</div>
               ${badge}
             </div>
             <button class="btn-delete" title="Удалить" data-id="${person.id}">✖</button>
@@ -718,6 +788,27 @@
         // Сразу после регистрации отправляем текущий список людей,
         // чтобы Service Worker был "в курсе" данных с первой секунды
         syncPeopleWithServiceWorker();
+
+        // Если Service Worker ещё не активен (первая установка), дожидаемся
+        // его активации и отправляем данные ещё раз — это подстраховка на
+        // случай, если самая первая попытка выше произошла слишком рано
+        if (swRegistration.installing || swRegistration.waiting) {
+          const workerInProgress = swRegistration.installing || swRegistration.waiting;
+          workerInProgress.addEventListener('statechange', function onStateChange() {
+            if (workerInProgress.state === 'activated') {
+              syncPeopleWithServiceWorker();
+              workerInProgress.removeEventListener('statechange', onStateChange);
+            }
+          });
+        }
+
+        // Браузер меняет "активного" Service Worker'а (например, после
+        // обновления sw.js) — контроллер страницы на мгновение становится
+        // другим, поэтому пересылаем список людей заново, чтобы новый
+        // Service Worker не остался без данных
+        navigator.serviceWorker.addEventListener('controllerchange', function () {
+          syncPeopleWithServiceWorker();
+        });
 
         // Пытаемся подписаться на ежедневную фоновую проверку
         await registerPeriodicSync();

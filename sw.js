@@ -2,8 +2,12 @@
    sw.js — Service Worker приложения "Дни рождения"
    --------------------------------------------------------------------------
    Задача этого файла: работать в фоне (даже когда сайт закрыт) и раз в сутки
-   проверять список людей — если у кого-то сегодня день рождения, показать
-   обычное системное уведомление на экране телефона.
+   проверять список людей. Уведомление показывается каждый день, начиная
+   ЗА 5 ДНЕЙ до дня рождения человека и до самого праздника: "через 5 дней",
+   на следующий день "через 4 дня", ..., "через 1 день", и в сам день —
+   "сегодня". В каждом уведомлении также указывается, сколько лет исполняется
+   человеку в этот день рождения (возраст считается на основе текущей даты
+   устройства, поэтому математика остаётся верной в любом году, включая 2026).
 
    ВАЖНО (техническое ограничение браузеров):
    У Service Worker'а НЕТ доступа к localStorage — это API работает только
@@ -19,6 +23,7 @@
 const DB_NAME = 'birthdayAppSW';       // имя базы IndexedDB внутри Service Worker'а
 const STORE_NAME = 'people';           // название "хранилища" в базе
 const PERIODIC_SYNC_TAG = 'check-birthdays'; // метка задачи фоновой проверки
+const NOTIFY_DAYS_BEFORE = 5;          // за сколько дней до праздника начинаем напоминать (5, 4, 3, 2, 1, 0)
 
 /**
  * Открывает (и при первом запуске создаёт) базу IndexedDB,
@@ -87,18 +92,114 @@ function daysUntilBirthday(dateStr) {
 }
 
 /**
+ * Считает, сколько лет ИСПОЛНИТСЯ человеку в его ближайший день рождения.
+ * Логика полностью повторяет calculateUpcomingAge() из index.html: строим
+ * дату ближайшего дня рождения (в этом году или в следующем, если в этом
+ * году уже прошёл) и вычитаем год рождения из года этой даты. Расчёт всегда
+ * опирается на текущую дату устройства (new Date()), поэтому он одинаково
+ * верен и в 2026 году, и в любой другой год — никаких "зашитых" чисел нет.
+ */
+function calculateUpcomingAge(dateStr) {
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+
+  const birthDate = new Date(dateStr);
+  let nextBirthday = new Date(today.getFullYear(), birthDate.getMonth(), birthDate.getDate());
+  nextBirthday.setHours(0, 0, 0, 0);
+
+  if (nextBirthday < today) {
+    nextBirthday.setFullYear(today.getFullYear() + 1);
+  }
+
+  return nextBirthday.getFullYear() - birthDate.getFullYear();
+}
+
+/**
+ * Правильно склоняет слово "год" по-русски в зависимости от возраста:
+ * 1 год, 2/3/4 года, 5-20 лет, 21 год, 22 года и т.д.
+ */
+function pluralizeYears(age) {
+  const lastTwoDigits = age % 100;
+  const lastDigit = age % 10;
+
+  if (lastTwoDigits >= 11 && lastTwoDigits <= 14) {
+    return 'лет';
+  }
+  if (lastDigit === 1) {
+    return 'год';
+  }
+  if (lastDigit >= 2 && lastDigit <= 4) {
+    return 'года';
+  }
+  return 'лет';
+}
+
+/**
+ * Правильно склоняет слово "день" по-русски в зависимости от числа дней:
+ * 1 день, 2/3/4 дня, 5-20 дней, 21 день, 22 дня и т.д.
+ */
+function pluralizeDays(days) {
+  const absDays = Math.abs(days);
+  const lastTwoDigits = absDays % 100;
+  const lastDigit = absDays % 10;
+
+  if (lastTwoDigits >= 11 && lastTwoDigits <= 14) {
+    return 'дней';
+  }
+  if (lastDigit === 1) {
+    return 'день';
+  }
+  if (lastDigit >= 2 && lastDigit <= 4) {
+    return 'дня';
+  }
+  return 'дней';
+}
+
+/**
+ * Формирует заголовок и текст уведомления в зависимости от того,
+ * сколько дней осталось до дня рождения человека, и сколько лет
+ * ему исполняется в этот день рождения.
+ */
+function buildNotificationContent(person, daysLeft, upcomingAge) {
+  const ageText = `исполняется ${upcomingAge} ${pluralizeYears(upcomingAge)}`;
+
+  if (daysLeft === 0) {
+    return {
+      title: '🎉 День рождения сегодня!',
+      body: `У ${person.name} сегодня день рождения, ${ageText}!`
+    };
+  }
+
+  return {
+    title: '🎂 Скоро день рождения!',
+    body: `У ${person.name} через ${daysLeft} ${pluralizeDays(daysLeft)} день рождения, ${ageText}!`
+  };
+}
+
+/**
  * Главная фоновая проверка: смотрит весь список людей и показывает
- * стандартное системное уведомление для каждого, у кого именно сегодня
- * день рождения.
+ * стандартное системное уведомление для каждого, у кого день рождения
+ * наступает сегодня или в ближайшие NOTIFY_DAYS_BEFORE дней.
+ * Уведомления приходят каждый день в этом диапазоне, например:
+ * "через 5 дней" -> "через 4 дня" -> ... -> "через 1 день" -> "сегодня",
+ * и в каждом из них указывается точный исполняющийся возраст.
  */
 async function checkBirthdaysAndNotify() {
   const people = await loadPeople();
-  const todayPeople = people.filter((person) => daysUntilBirthday(person.date) === 0);
 
-  for (const person of todayPeople) {
-    await self.registration.showNotification('🎉 День рождения сегодня!', {
-      body: `У ${person.name} сегодня день рождения. Не забудьте поздравить!`,
-      tag: `birthday-${person.id}`, // не даёт показать одно и то же уведомление дважды за день
+  const upcomingPeople = people
+    .map((person) => ({ person, daysLeft: daysUntilBirthday(person.date) }))
+    .filter(({ daysLeft }) => daysLeft >= 0 && daysLeft <= NOTIFY_DAYS_BEFORE);
+
+  for (const { person, daysLeft } of upcomingPeople) {
+    const upcomingAge = calculateUpcomingAge(person.date);
+    const { title, body } = buildNotificationContent(person, daysLeft, upcomingAge);
+
+    await self.registration.showNotification(title, {
+      body,
+      // tag включает daysLeft, поэтому каждый день (5, 4, 3, 2, 1, 0) считается
+      // ОТДЕЛЬНЫМ уведомлением и не подавляется вчерашним с тем же id человека
+      tag: `birthday-${person.id}-${daysLeft}`,
       requireInteraction: false
     });
   }
