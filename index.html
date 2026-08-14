@@ -1,0 +1,827 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <!-- Настройки для корректного отображения на мобильных устройствах -->
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <!-- Цвет строки состояния Android, когда сайт открыт как PWA -->
+  <meta name="theme-color" content="#FFB5C0">
+  <title>Напоминалка о днях рождения</title>
+
+  <!-- Манифест PWA: описывает имя, иконки и цвета приложения,
+       чтобы браузер предложил "Установить на главный экран" -->
+  <link rel="manifest" href="manifest.json">
+  <!-- Иконка приложения (используется также браузером как favicon) -->
+  <link rel="icon" href="icon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="icon.svg">
+
+  <style>
+    /* ===================== ОБЩИЕ НАСТРОЙКИ ===================== */
+    * {
+      box-sizing: border-box;      /* padding и border не увеличивают итоговый размер элемента */
+      -webkit-tap-highlight-color: transparent; /* убираем серую вспышку при тапе на Android */
+    }
+
+    :root {
+      /* Пастельная цветовая палитра приложения */
+      --bg-color: #FDF6F0;         /* фон страницы */
+      --card-color: #FFFFFF;       /* фон карточек */
+      --primary: #FFB5C0;          /* основной пастельный розовый */
+      --primary-dark: #FF8FA3;     /* более тёмный оттенок для нажатий/акцентов */
+      --accent: #A0E7E5;           /* бирюзовый акцент */
+      --text-main: #4A4A4A;        /* основной текст */
+      --text-light: #8A8A8A;       /* второстепенный текст */
+      --danger: #FF6B6B;           /* цвет кнопки удаления */
+      --radius: 18px;              /* скругление углов, единое для всего приложения */
+      --shadow: 0 4px 14px rgba(0, 0, 0, 0.08);
+    }
+
+    html, body {
+      margin: 0;
+      padding: 0;
+      background-color: var(--bg-color);
+      font-family: 'Segoe UI', 'Roboto', Arial, sans-serif; /* Roboto — стандартный шрифт Android */
+      color: var(--text-main);
+      -webkit-user-select: none;
+      user-select: none; /* приложение похоже на нативное, текст не нужно выделять */
+    }
+
+    /* Контейнер ограничивает ширину контента, чтобы на планшетах всё смотрелось аккуратно */
+    .app {
+      max-width: 480px;
+      margin: 0 auto;
+      min-height: 100vh;
+      padding: 20px 16px 40px;
+    }
+
+    /* ===================== ЗАГОЛОВОК ===================== */
+    header {
+      text-align: center;
+      margin-bottom: 20px;
+      padding-top: 10px;
+    }
+
+    header .emoji {
+      font-size: 42px;
+      display: block;
+      margin-bottom: 4px;
+    }
+
+    header h1 {
+      font-size: 22px;
+      margin: 0;
+      font-weight: 700;
+    }
+
+    header p {
+      margin: 4px 0 0;
+      color: var(--text-light);
+      font-size: 14px;
+    }
+
+    /* ===================== КАРТОЧКИ (форма и элементы списка) ===================== */
+    .card {
+      background: var(--card-color);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow);
+      padding: 18px;
+    }
+
+    /* ===================== ФОРМА ДОБАВЛЕНИЯ ===================== */
+    .form-card {
+      margin-bottom: 24px;
+    }
+
+    .form-group {
+      margin-bottom: 14px;
+    }
+
+    .form-group label {
+      display: block;
+      font-size: 13px;
+      color: var(--text-light);
+      margin-bottom: 6px;
+      font-weight: 600;
+    }
+
+    /* Общий стиль для текстового поля и поля даты */
+    .form-group input {
+      width: 100%;
+      padding: 14px 16px;
+      border: 2px solid #F0E9E4;
+      border-radius: 14px;
+      font-size: 16px;         /* 16px не даёт браузеру масштабировать страницу при фокусе */
+      color: var(--text-main);
+      background-color: #FCFAF8;
+      outline: none;
+      transition: border-color 0.2s ease;
+      -webkit-user-select: text;
+      user-select: text;
+    }
+
+    .form-group input:focus {
+      border-color: var(--primary);
+    }
+
+    /* Крупная кнопка «Добавить», удобная для нажатия пальцем */
+    .btn-add {
+      width: 100%;
+      padding: 16px;
+      font-size: 17px;
+      font-weight: 700;
+      color: #fff;
+      background: linear-gradient(135deg, var(--primary), var(--primary-dark));
+      border: none;
+      border-radius: 14px;
+      cursor: pointer;
+      box-shadow: 0 6px 14px rgba(255, 143, 163, 0.45);
+      transition: transform 0.1s ease, box-shadow 0.1s ease;
+    }
+
+    .btn-add:active {
+      transform: scale(0.97);
+      box-shadow: 0 3px 8px rgba(255, 143, 163, 0.4);
+    }
+
+    /* ===================== СПИСОК ЛЮДЕЙ ===================== */
+    .list-title {
+      font-size: 16px;
+      font-weight: 700;
+      margin: 0 0 12px 4px;
+      color: var(--text-main);
+    }
+
+    /* "Шапка таблицы" для десктопа. На телефоне она не нужна — прячем её.
+       Появится и станет строкой заголовков внутри @media (min-width: 900px) ниже. */
+    .list-header {
+      display: none;
+    }
+
+    #peopleList {
+      list-style: none;
+      margin: 0;
+      padding: 0;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+
+    .person-item {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 14px;
+    }
+
+    /* Кружок с эмодзи-тортом слева от имени */
+    .person-avatar {
+      flex: 0 0 auto;
+      width: 46px;
+      height: 46px;
+      border-radius: 50%;
+      background: var(--accent);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 22px;
+    }
+
+    .person-info {
+      flex: 1 1 auto;
+      min-width: 0; /* позволяет тексту корректно обрезаться */
+    }
+
+    .person-name {
+      font-size: 16px;
+      font-weight: 700;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .person-date {
+      font-size: 13px;
+      color: var(--text-light);
+      margin-top: 2px;
+    }
+
+    /* Значок "скоро день рождения" */
+    .person-badge {
+      font-size: 11px;
+      font-weight: 700;
+      color: #fff;
+      background: var(--primary-dark);
+      border-radius: 20px;
+      padding: 3px 9px;
+      margin-top: 4px;
+      display: inline-block;
+    }
+
+    /* Кнопка удаления — крупная область нажатия, но компактная визуально */
+    .btn-delete {
+      flex: 0 0 auto;
+      width: 42px;
+      height: 42px;
+      border-radius: 50%;
+      border: none;
+      background: #FFECEC;
+      color: var(--danger);
+      font-size: 18px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: background 0.15s ease, transform 0.1s ease;
+    }
+
+    .btn-delete:active {
+      transform: scale(0.9);
+      background: #FFDADA;
+    }
+
+    /* Сообщение, когда список пуст */
+    .empty-state {
+      text-align: center;
+      padding: 40px 20px;
+      color: var(--text-light);
+    }
+
+    .empty-state .emoji {
+      font-size: 40px;
+      display: block;
+      margin-bottom: 8px;
+    }
+
+    /* ===================== БАННЕР ВКЛЮЧЕНИЯ УВЕДОМЛЕНИЙ ===================== */
+    .notify-banner {
+      margin-bottom: 20px;
+    }
+
+    .notify-banner .card {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 14px 16px;
+    }
+
+    .notify-banner .notify-text {
+      flex: 1 1 auto;
+      font-size: 13px;
+      color: var(--text-light);
+      line-height: 1.4;
+    }
+
+    .btn-notify {
+      flex: 0 0 auto;
+      padding: 10px 16px;
+      font-size: 14px;
+      font-weight: 700;
+      color: #fff;
+      background: linear-gradient(135deg, var(--accent), #6FD3D1);
+      border: none;
+      border-radius: 12px;
+      cursor: pointer;
+      white-space: nowrap;
+      transition: transform 0.1s ease;
+    }
+
+    .btn-notify:active {
+      transform: scale(0.96);
+    }
+
+    .btn-notify:disabled {
+      opacity: 0.6;
+      cursor: default;
+    }
+
+    /* ===================================================================
+       АДАПТИВНОСТЬ ДЛЯ БОЛЬШИХ ЭКРАНОВ (ПК, ноутбуки, планшеты в альбомной
+       ориентации). Всё, что описано ВНУТРИ этого @media, включается только
+       если ширина окна браузера от 900px и шире. На телефоне (ширина меньше
+       900px) эти правила просто не применяются, и сайт остаётся такой же
+       вертикальной мобильной лентой, как и был раньше.
+       ================================================================== */
+    @media (min-width: 900px) {
+
+      /* Контейнер приложения теперь может занимать намного больше места —
+         вместо узких 480px разрешаем ему растянуться до 1100px и добавляем
+         более просторные отступы по бокам и сверху/снизу. */
+      .app {
+        max-width: 1100px;
+        padding: 48px 32px 60px;
+      }
+
+      header {
+        margin-bottom: 32px;
+      }
+
+      /* Главное превращение: .main-content становится CSS Grid-сеткой
+         с ДВУМЯ колонками — слева фиксированная колонка под форму (340px),
+         справа — гибкая (1fr), которая забирает всё оставшееся место под
+         широкую таблицу со списком людей. */
+      .main-content {
+        display: grid;
+        grid-template-columns: 340px 1fr;
+        align-items: start;
+        gap: 32px;
+      }
+
+      /* На мобильном у формы был отступ снизу (margin-bottom: 24px), чтобы
+         оттолкнуть от неё список, который шёл ниже. В сетке колонки уже
+         разделены свойством gap, поэтому этот отступ убираем. Дополнительно
+         "приклеиваем" карточку формы к верху при прокрутке длинного списка —
+         так она остаётся под рукой, даже если список большой. */
+      .form-card {
+        margin-bottom: 0;
+        position: sticky;
+        top: 40px;
+      }
+
+      /* Показываем шапку таблицы и выстраиваем её подписи в один ряд,
+         совпадающий по колонкам с содержимым карточек-строк ниже
+         (аватар+имя / дата / сколько дней осталось / место под кнопку). */
+      .list-header {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        padding: 0 14px 12px 14px;
+        font-size: 12px;
+        font-weight: 700;
+        color: var(--text-light);
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+      }
+
+      .list-header .col-name {
+        flex: 1 1 auto;
+        padding-left: 58px; /* отступ под место, которое занимает круглая аватарка со значком торта */
+      }
+
+      .list-header .col-date {
+        flex: 0 0 130px;
+      }
+
+      .list-header .col-days {
+        flex: 0 0 130px;
+        text-align: center;
+      }
+
+      .list-header .col-empty {
+        flex: 0 0 42px; /* пустая колонка такой же ширины, как кнопка удаления, для выравнивания */
+      }
+
+      /* Список строк-людей делаем немного просторнее по вертикали. */
+      #peopleList {
+        gap: 10px;
+      }
+
+      /* Каждая строка становится похожа на строку широкой таблицы:
+         аватар — имя — дата — "сколько дней осталось" — кнопка удаления,
+         все элементы выстроены в один горизонтальный ряд. */
+      .person-info {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+      }
+
+      .person-name {
+        flex: 1 1 auto;
+      }
+
+      .person-date {
+        flex: 0 0 130px;
+        margin-top: 0;
+      }
+
+      .person-badge {
+        flex: 0 0 130px;
+        margin-top: 0;
+        text-align: center;
+      }
+    }
+  </style>
+</head>
+<body>
+
+  <div class="app">
+
+    <!-- ===================== ЗАГОЛОВОК ПРИЛОЖЕНИЯ ===================== -->
+    <header>
+      <span class="emoji">🎂</span>
+      <h1>Дни рождения</h1>
+      <p>Не пропусти ни одного праздника</p>
+    </header>
+
+    <!-- ===================== БАННЕР ВКЛЮЧЕНИЯ УВЕДОМЛЕНИЙ =====================
+         Разрешение на показ уведомлений браузер разрешает запрашивать
+         только по прямому действию пользователя (клик по кнопке), поэтому
+         запрос происходит именно по нажатию на эту кнопку, а не сам по себе
+         при загрузке страницы. -->
+    <div class="notify-banner" id="notifyBanner" hidden>
+      <div class="card">
+        <div class="notify-text">
+          Включите напоминания, чтобы не пропустить ни одного дня рождения 🎉
+        </div>
+        <button type="button" class="btn-notify" id="notifyButton">🔔 Включить</button>
+      </div>
+    </div>
+
+    <!-- ===================================================================
+         .main-content объединяет форму и список в одну обёртку.
+         На телефоне (узкий экран) это просто обычный вертикальный блок —
+         форма сверху, список ниже, как и было раньше.
+         На компьютере (широкий экран, см. @media в <style>) этот блок
+         превращается в CSS Grid с двумя колонками: форма слева, таблица
+         со списком людей справа.
+         ================================================================== -->
+    <div class="main-content">
+
+      <!-- ===================== ФОРМА ДОБАВЛЕНИЯ ЧЕЛОВЕКА ===================== -->
+      <div class="card form-card">
+        <form id="addForm">
+          <div class="form-group">
+            <label for="nameInput">Имя</label>
+            <input type="text" id="nameInput" placeholder="Например, Анна" required>
+          </div>
+
+          <div class="form-group">
+            <label for="dateInput">Дата рождения</label>
+            <!-- Поле типа "date" открывает удобный нативный календарь -->
+            <input type="date" id="dateInput" required>
+          </div>
+
+          <button type="submit" class="btn-add">➕ Добавить</button>
+        </form>
+      </div>
+
+      <!-- ===================== СПИСОК ЛЮДЕЙ ===================== -->
+      <div class="list-section">
+        <div class="list-title">Список 👇</div>
+
+        <!-- Строка заголовков "таблицы". На телефоне скрыта (display: none),
+             на компьютере становится видимой строкой подписей колонок
+             (см. .list-header в @media (min-width: 900px) внутри <style>). -->
+        <div class="list-header">
+          <span class="col-name">Имя</span>
+          <span class="col-date">Дата</span>
+          <span class="col-days">Осталось дней</span>
+          <span class="col-empty"></span>
+        </div>
+
+        <ul id="peopleList"></ul>
+      </div>
+
+    </div>
+
+  </div>
+
+  <script>
+    /* ==========================================================================
+       ЛОГИКА ПРИЛОЖЕНИЯ
+       --------------------------------------------------------------------------
+       Идея работы очень простая:
+       1) Мы храним весь список людей в обычном JS-массиве "people".
+       2) При любом изменении массива (добавление/удаление) мы:
+          a) заново отрисовываем список на экране (функция renderList);
+          b) сохраняем массив в localStorage (функция saveToStorage),
+             чтобы после перезагрузки страницы данные не потерялись.
+       3) При первой загрузке страницы мы читаем сохранённые данные
+          из localStorage (функция loadFromStorage) и сразу их показываем.
+    ========================================================================== */
+
+    // Ключ, под которым мы храним данные в localStorage.
+    // localStorage — это встроенное "хранилище" браузера в виде пар "ключ-значение",
+    // которое сохраняется даже после закрытия браузера или перезагрузки телефона.
+    const STORAGE_KEY = 'birthdayApp.people';
+
+    // Находим нужные элементы страницы один раз и сохраняем ссылки на них
+    const form = document.getElementById('addForm');
+    const nameInput = document.getElementById('nameInput');
+    const dateInput = document.getElementById('dateInput');
+    const listElement = document.getElementById('peopleList');
+
+    // Массив, где будут храниться все добавленные люди.
+    // Каждый человек — это объект вида { id: 123, name: 'Анна', date: '1998-05-21' }
+    let people = [];
+
+    /**
+     * Загружает список людей из localStorage.
+     * Если данных там нет (первый запуск приложения) — возвращает пустой массив.
+     */
+    function loadFromStorage() {
+      const raw = localStorage.getItem(STORAGE_KEY); // читаем строку из хранилища
+      if (!raw) {
+        return [];
+      }
+      try {
+        // В localStorage можно хранить только строки, поэтому массив был
+        // сохранён как JSON-строка. Превращаем её обратно в массив объектов.
+        return JSON.parse(raw);
+      } catch (error) {
+        // Если данные повреждены — не ломаем приложение, а начинаем с чистого листа
+        console.error('Не удалось прочитать сохранённые данные:', error);
+        return [];
+      }
+    }
+
+    /**
+     * Сохраняет текущий массив people в localStorage.
+     * Вызывается каждый раз, когда список меняется (добавление/удаление).
+     */
+    function saveToStorage() {
+      // JSON.stringify превращает массив объектов в обычную текстовую строку
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(people));
+
+      // Дополнительно отправляем свежий список в Service Worker (sw.js).
+      // Это нужно, потому что у Service Worker'а НЕТ доступа к localStorage —
+      // он видит людей только через собственную копию в IndexedDB, которую
+      // мы обновляем этим сообщением при каждом изменении списка.
+      syncPeopleWithServiceWorker();
+    }
+
+    /**
+     * Считает, сколько дней осталось до следующего дня рождения человека.
+     * Если день рождения сегодня — вернёт 0.
+     */
+    function daysUntilBirthday(dateStr) {
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+
+      const birthDate = new Date(dateStr);
+      // Строим дату следующего дня рождения в текущем (или следующем) году
+      let nextBirthday = new Date(today.getFullYear(), birthDate.getMonth(), birthDate.getDate());
+      nextBirthday.setHours(0, 0, 0, 0);
+
+      if (nextBirthday < today) {
+        // Если в этом году день рождения уже прошёл — считаем от следующего года
+        nextBirthday.setFullYear(today.getFullYear() + 1);
+      }
+
+      const diffMs = nextBirthday - today;
+      return Math.round(diffMs / (1000 * 60 * 60 * 24));
+    }
+
+    /**
+     * Форматирует дату из формата "YYYY-MM-DD" (как отдаёт <input type="date">)
+     * в привычный русский вид "21.05.1998".
+     */
+    function formatDate(dateStr) {
+      const [year, month, day] = dateStr.split('-');
+      return `${day}.${month}.${year}`;
+    }
+
+    /**
+     * Отрисовывает (перерисовывает) весь список людей на экране
+     * на основе текущего содержимого массива people.
+     */
+    function renderList() {
+      // Если список пуст — показываем красивую заглушку
+      if (people.length === 0) {
+        listElement.innerHTML = `
+          <div class="empty-state">
+            <span class="emoji">🎈</span>
+            Пока никого нет в списке.<br>Добавьте первого именинника!
+          </div>
+        `;
+        return;
+      }
+
+      // Сортируем людей по тому, у кого день рождения ближе — так удобнее
+      const sortedPeople = [...people].sort(
+        (a, b) => daysUntilBirthday(a.date) - daysUntilBirthday(b.date)
+      );
+
+      // Собираем HTML для каждого человека и вставляем всё за один раз
+      // (это быстрее, чем добавлять элементы по одному)
+      listElement.innerHTML = sortedPeople.map(person => {
+        const daysLeft = daysUntilBirthday(person.date);
+
+        // Небольшой значок, если день рождения уже скоро
+        let badge = '';
+        if (daysLeft === 0) {
+          badge = '<span class="person-badge">🎉 Сегодня!</span>';
+        } else if (daysLeft <= 7) {
+          badge = `<span class="person-badge">Через ${daysLeft} дн.</span>`;
+        }
+
+        return `
+          <li class="card person-item" data-id="${person.id}">
+            <div class="person-avatar">🎂</div>
+            <div class="person-info">
+              <div class="person-name">${escapeHtml(person.name)}</div>
+              <div class="person-date">${formatDate(person.date)}</div>
+              ${badge}
+            </div>
+            <button class="btn-delete" title="Удалить" data-id="${person.id}">✖</button>
+          </li>
+        `;
+      }).join('');
+    }
+
+    /**
+     * Простая защита от XSS: превращает специальные HTML-символы в безопасные,
+     * чтобы, например, введённое имя "<b>Текст</b>" не выполнилось как код.
+     */
+    function escapeHtml(text) {
+      const div = document.createElement('div');
+      div.textContent = text;
+      return div.innerHTML;
+    }
+
+    /**
+     * Обработчик отправки формы добавления нового человека.
+     */
+    form.addEventListener('submit', function (event) {
+      event.preventDefault(); // не даём странице перезагружаться при отправке формы
+
+      const name = nameInput.value.trim();
+      const date = dateInput.value;
+
+      if (!name || !date) {
+        return; // на всякий случай, хотя поля и так required
+      }
+
+      // Создаём нового человека и добавляем его в массив.
+      // id делаем на основе текущего времени — он гарантированно уникален.
+      people.push({
+        id: Date.now(),
+        name: name,
+        date: date
+      });
+
+      saveToStorage(); // сохраняем обновлённый список в localStorage
+      renderList();    // обновляем то, что видно на экране
+
+      // Очищаем форму, чтобы было удобно сразу вводить следующего человека
+      form.reset();
+      nameInput.focus();
+    });
+
+    /**
+     * Обработчик кликов по списку людей.
+     * Мы используем "делегирование событий": вешаем один слушатель на весь
+     * список <ul>, а не на каждую кнопку "Удалить" отдельно. Это удобно,
+     * потому что список постоянно перерисовывается.
+     */
+    listElement.addEventListener('click', function (event) {
+      const deleteButton = event.target.closest('.btn-delete');
+      if (!deleteButton) {
+        return; // кликнули не по кнопке удаления
+      }
+
+      const idToDelete = Number(deleteButton.dataset.id);
+
+      // Оставляем в массиве всех, кроме человека с этим id
+      people = people.filter(person => person.id !== idToDelete);
+
+      saveToStorage();
+      renderList();
+    });
+
+    /* ==========================================================================
+       PWA И УВЕДОМЛЕНИЯ
+       --------------------------------------------------------------------------
+       Этот блок отвечает за:
+       1) регистрацию Service Worker'а (sw.js), который умеет работать в фоне;
+       2) запрос у пользователя разрешения на показ уведомлений (обязательно
+          по клику на кнопку — браузеры не разрешают спрашивать это само по
+          себе при загрузке страницы);
+       3) передачу текущего списка людей в Service Worker, так как у него
+          самого нет доступа к localStorage;
+       4) подписку на Periodic Background Sync — механизм, который просит
+          браузер САМ вызывать sw.js примерно раз в сутки, даже когда сайт
+          закрыт (сейчас работает только в Chrome/Edge на Android, и только
+          если сайт установлен как PWA и открыт по HTTPS).
+       ========================================================================== */
+
+    const notifyBanner = document.getElementById('notifyBanner');
+    const notifyButton = document.getElementById('notifyButton');
+
+    // Ссылка на зарегистрированный Service Worker, заполняется после регистрации
+    let swRegistration = null;
+
+    /**
+     * Регистрирует sw.js как Service Worker сайта.
+     * Если браузер не поддерживает Service Worker'ы (очень старые браузеры) —
+     * просто ничего не делаем, остальное приложение продолжает работать как обычно.
+     */
+    async function registerServiceWorker() {
+      if (!('serviceWorker' in navigator)) {
+        console.warn('Service Worker не поддерживается этим браузером.');
+        return;
+      }
+
+      try {
+        swRegistration = await navigator.serviceWorker.register('sw.js');
+        console.log('Service Worker зарегистрирован:', swRegistration);
+
+        // Сразу после регистрации отправляем текущий список людей,
+        // чтобы Service Worker был "в курсе" данных с первой секунды
+        syncPeopleWithServiceWorker();
+
+        // Пытаемся подписаться на ежедневную фоновую проверку
+        await registerPeriodicSync();
+      } catch (error) {
+        console.error('Не удалось зарегистрировать Service Worker:', error);
+      }
+    }
+
+    /**
+     * Отправляет текущий массив people в Service Worker через postMessage.
+     * Именно так sw.js узнаёт, кого проверять, ведь localStorage ему недоступен.
+     */
+    function syncPeopleWithServiceWorker() {
+      if (!('serviceWorker' in navigator)) {
+        return;
+      }
+
+      const message = { type: 'SYNC_PEOPLE', people: people };
+
+      // Обычный путь: страница уже находится "под управлением" Service Worker'а
+      if (navigator.serviceWorker.controller) {
+        navigator.serviceWorker.controller.postMessage(message);
+        return;
+      }
+
+      // Запасной путь: сразу после первой установки контроллер иногда
+      // ещё не назначен, но сам активный Service Worker уже доступен
+      if (swRegistration && swRegistration.active) {
+        swRegistration.active.postMessage(message);
+      }
+    }
+
+    /**
+     * Подписывается на Periodic Background Sync с тегом 'check-birthdays' —
+     * тот же тег, который слушает sw.js. Браузер будет стараться вызывать
+     * фоновую проверку примерно раз в сутки (minInterval указан в миллисекундах).
+     * Если API не поддерживается или разрешение не выдано — просто пропускаем
+     * этот шаг, остальное приложение не ломается.
+     */
+    async function registerPeriodicSync() {
+      if (!swRegistration || !('periodicSync' in swRegistration)) {
+        console.warn('Periodic Background Sync не поддерживается этим браузером.');
+        return;
+      }
+
+      try {
+        const status = await navigator.permissions.query({ name: 'periodic-background-sync' });
+        if (status.state === 'granted') {
+          await swRegistration.periodicSync.register('check-birthdays', {
+            minInterval: 24 * 60 * 60 * 1000 // раз в сутки
+          });
+          console.log('Periodic Background Sync подключён.');
+        }
+      } catch (error) {
+        console.warn('Не удалось подключить Periodic Background Sync:', error);
+      }
+    }
+
+    /**
+     * Показывает баннер с предложением включить уведомления, если это
+     * поддерживается браузером и разрешение ещё не запрашивалось/не выдано.
+     */
+    function updateNotifyBannerVisibility() {
+      if (!('Notification' in window)) {
+        return; // браузер вообще не поддерживает уведомления — баннер не нужен
+      }
+      notifyBanner.hidden = Notification.permission !== 'default';
+    }
+
+    /**
+     * Обработчик кнопки "Включить" в баннере уведомлений.
+     * Запрос разрешения обязательно происходит по клику пользователя —
+     * это требование самих браузеров ради защиты от спама уведомлениями.
+     */
+    notifyButton.addEventListener('click', async function () {
+      if (!('Notification' in window)) {
+        return;
+      }
+
+      const permission = await Notification.requestPermission();
+
+      if (permission === 'granted') {
+        // Разрешение получено — прячем баннер и сразу подключаем фоновую проверку
+        notifyBanner.hidden = true;
+        await registerPeriodicSync();
+      } else {
+        // Пользователь отказал или закрыл запрос — просто прячем баннер,
+        // чтобы не быть навязчивыми (Notification.permission больше не 'default')
+        notifyBanner.hidden = true;
+      }
+    });
+
+    /* ===================== ЗАПУСК ПРИЛОЖЕНИЯ ===================== */
+    // При загрузке страницы читаем сохранённые данные и сразу отображаем их
+    people = loadFromStorage();
+    renderList();
+
+    // Подключаем PWA-функциональность: регистрируем Service Worker
+    // и показываем баннер с предложением включить уведомления
+    registerServiceWorker();
+    updateNotifyBannerVisibility();
+  </script>
+
+</body>
+</html>
+
+

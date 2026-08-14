@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 192 192" width="192" height="192">
+  <!-- Простая квадратная иконка приложения: пастельный розовый фон + эмодзи торта.
+       Формат SVG выбран, чтобы не подключать бинарные файлы (png/ico) —
+       такую иконку можно открыть и отредактировать как обычный текст. -->
+  <rect width="192" height="192" rx="36" fill="#FFB5C0"/>
+  <circle cx="96" cy="96" r="70" fill="#FFFFFF" opacity="0.25"/>
+  <text x="50%" y="58%" font-size="96" text-anchor="middle" dominant-baseline="middle">🎂</text>
+</svg>
